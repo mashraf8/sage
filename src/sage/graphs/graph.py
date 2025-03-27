@@ -9235,6 +9235,107 @@ class Graph(GenericGraph):
         G.name("%sBipartite Double of %s" % (prefix, self.name()))
         return G
 
+    def simple_cycles_ungraph(self):
+        # Ensure the graph is undirected
+        if self.is_directed():
+            raise ValueError("This function supports only undirected graphs")
+        
+        from heapq import heappush, heappop
+        heap = [] 
+
+        # Search for self-loops
+        if self.allows_loops():
+            for v, *_ in self.loop_edges():
+                heappush(heap, (1, [v])) 
+
+        # Search for multiple edges
+        if self.allows_multiple_edges():
+            seen_edges = set()
+            for u, v, *_ in self.multiple_edges():
+                edge = (u, v)  
+                if edge not in seen_edges:
+                    heappush(heap, (2, list(edge)))  # Add parallel edges as 2-node cycles
+                    seen_edges.add(edge)
+
+        # Filter out self-loops and parallel edges, creating a simplified graph
+        G = Graph([(u, v) for u in self.vertices() for v in self.neighbors(u) if u != v])
+        
+        while heap:
+            # Extract the shortest available cycle
+            _, shortest_cycle = heappop(heap)
+            yield shortest_cycle  # Yield the current cycle
+            # Search for the next cycle using `prepare_undirected_cycles`
+            try:
+                cycle = next(self.prepare_undirected_cycles(G))
+                heappush(heap, (len(cycle), cycle))  # Add the new cycle to the heap
+            except StopIteration:
+                pass  
+
+
+    def prepare_undirected_cycles(self,G):
+        # Get all biconnected components (blocks) that have at least 3 vertices
+        components = [c for c in G.blocks_and_cut_vertices()[0] if len(c) >= 3]
+
+        # Process each biconnected component
+        while components:
+            c = components.pop()  # Get the last component from the list
+            Gc = G.subgraph(vertices=c)  # Create a subgraph with the vertices of the component
+            # Select an arbitrary edge from the subgraph
+            uv = list(next(iter(Gc.edge_iterator(labels=False))))  
+            G.delete_edge(uv[0], uv[1])
+            Gc.delete_edge(uv[0], uv[1])  
+            # Use Johnson's cycle search algorithm to find cycles starting from the removed edge
+            yield from self.johnson_cycle_algorithm(Gc, uv)
+            # Find new biconnected components after edge removal and add them if they have at least 3 vertices
+            components.extend(c for c in Gc.blocks_and_cut_vertices()[0] if len(c) >= 3)
+
+    def johnson_cycle_algorithm(self, G, path):
+
+        from collections import defaultdict
+        G = self._NeighborhoodCache(G)
+        blocked = set(path)
+        B = defaultdict(set)  
+        start = path[0]
+        stack = [iter(G[path[-1]])]
+        closed = [False]
+        while stack:
+            nbrs = stack[-1]
+            for w in nbrs:
+                if w == start:
+                    yield path[:]
+                    closed[-1] = True
+                elif w not in blocked:
+                    path.append(w)
+                    closed.append(False)
+                    stack.append(iter(G[w]))
+                    blocked.add(w)
+                    break
+            else: 
+                stack.pop()
+                v = path.pop()
+                if closed.pop():
+                    if closed:
+                        closed[-1] = True
+                    unblock_stack = {v}
+                    while unblock_stack:
+                        u = unblock_stack.pop()
+                        if u in blocked:
+                            blocked.remove(u)
+                            unblock_stack.update(B[u])
+                            B[u].clear()
+                else:
+                    for w in G[v]:
+                        B[w].add(v)
+
+    class _NeighborhoodCache(dict):
+        def __init__(self, G):
+            self.G = G 
+    
+        def __missing__(self, v):
+            Gv = self[v] = list(self.G.neighbors(v))  
+            return Gv
+        
+
     # Aliases to functions defined in other modules
     from sage.graphs.weakly_chordal import is_long_hole_free, is_long_antihole_free, is_weakly_chordal
     from sage.graphs.asteroidal_triples import is_asteroidal_triple_free
