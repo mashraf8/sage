@@ -9262,7 +9262,7 @@ class Graph(GenericGraph):
                     seen_edges.add(edge)
 
         # Filter out self-loops and parallel edges, creating a simplified graph
-        G = Graph([(u, v) for u in self.vertices() for v in self.neighbors(u) if u != v])
+        G = self.to_simple() 
     
         while heap:
             # Extract the shortest available cycle
