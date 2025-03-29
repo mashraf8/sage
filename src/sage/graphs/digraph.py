@@ -4399,6 +4399,459 @@ class DiGraph(GenericGraph):
         list_merged_edges = set()
         return _rec_in_branchings(depth)
 
+    def k_short_path(self, source, target, k=1):
+        solver = self.PostponedNodeClassificationStar(self, source, target)
+        shortest_paths = []
+        
+        for _ in range(k):
+            if solver.empty():
+                break
+            path, weight = solver.next_path()
+            if path:
+                shortest_paths.append((path, weight))
+        
+        return shortest_paths
+
+    class PostponedNodeClassificationStar:
+        from heapq import heappush,heappop
+        class CandidatePath:
+            def __init__(self, path, weight, deviation_index, is_simple):
+                self.path = path
+                self.weight = weight
+                self.deviation_index = deviation_index
+                self.is_simple = is_simple
+
+            def __lt__(self, other):
+                return self.weight < other.weight   
+             
+        def __init__(self, g, ssource, ttarget):
+            self.graph = g
+            self.n = g.order()
+            self.source = ssource
+            self.target = ttarget
+            self.MAX_WEIGHT = float('inf')
+            
+            # Initialize data structures
+            self.heap_sorted_paths = []
+            self.yielded_paths = []
+            self.forbidden_vertices = set()
+            self.forbidden_edges = []
+            self.repair_forbidden_edges = set()
+            self.succ_g_inv = {}
+            self.out_neighbors_residual = {}
+            self.color = {}
+            self.DTo = None
+            self.cpt_yielded_paths = 0
+            self.cpt_used_trees = 0
+
+            # Compute shortest path
+            if self.source == self.target:
+                # Trivial case
+                path = [self.source]
+                C = self.CandidatePath(path, 0, 0, True)
+                self.heappush(self.heap_sorted_paths, (0, C))
+            else:
+                # Run reverse Dijkstra from target to source
+                self.DTo = self.Dijkstra(self.graph, self.target, reverse=True)
+                self.DTo.run(self.source)
+                self.cpt_used_trees += 1
+                
+                if self.DTo.successor(self.source) != self.source:
+                    path = self.DTo.get_path(self.source)
+                    C = self.CandidatePath(path, self.DTo.weight(self.source), 0, True)
+                    self.heappush(self.heap_sorted_paths, (C.weight, C))
+                    self.init_data_structures()
+            
+        def init_data_structures(self):
+            # Initialize succ_g_inv
+            self.succ_g_inv = {v: set() for v in self.graph.vertices()}
+            for u in self.graph.vertices():
+                if u == self.target:
+                    continue
+                succ = self.DTo.successor(u)
+                self.succ_g_inv[succ].add(u)
+
+            # Compute the remaining weights
+            self.out_neighbors_residual = {v: [] for v in self.graph.vertices()}
+            for u in self.graph.vertices():
+                for edge in self.graph.outgoing_edges(u):
+                    v = edge[1]
+                    w = edge[2] if len(edge) > 2 else 1  # إذا لم يوجد وزن، افترض 1
+                    residual = self.DTo.weight(v) + w - self.DTo.weight(u)
+                    self.out_neighbors_residual[u].append((v, residual))
+
+            # Initialize additional data structures
+            self.color = {v: 0 for v in self.graph.vertices()}
+            self.pred = {v: v for v in self.graph.vertices()}
+            self.weight = {v: self.MAX_WEIGHT for v in self.graph.vertices()}
+
+        def empty(self):
+            return len(self.heap_sorted_paths) == 0
+        
+        def next_path(self):
+            path = []
+            if not self.heap_sorted_paths:
+                return (path, 0)
+            
+            # Extract the best (lowest-cost) path from the priority queue
+            prev_path = self.heappop(self.heap_sorted_paths)[1]
+            
+            # Fix non-simple paths
+            while not prev_path.is_simple:
+                self.repair_path(prev_path)
+                if self.heap_sorted_paths:
+                    prev_path = self.heappop(self.heap_sorted_paths)[1]
+                else:
+                    return (path, 0)
+            
+            # Check for invalid path weight
+            if prev_path.weight == 0 or prev_path.weight == self.MAX_WEIGHT:
+                return (prev_path.path, 0)
+            
+            # Compute deviations and store the valid path
+            self.compute_deviations(prev_path)
+            self.yielded_paths.append(prev_path)
+            self.cpt_yielded_paths += 1
+            
+            return (prev_path.path, prev_path.weight)
+        
+        def compute_deviations(self, candidate_path):
+            prev_path = candidate_path.path
+            prev_path_size = len(prev_path)
+            dev_idx = candidate_path.deviation_index
+
+            # Initialize forbidden edges
+            self.forbidden_edges = [set() for _ in range(prev_path_size)]
+            for i in range(dev_idx, prev_path_size - 1):
+                self.forbidden_edges[i].add((prev_path[i], prev_path[i+1]))
+
+            for c_path in self.yielded_paths:
+                j = 1
+                jmax = min(prev_path_size, len(c_path.path)) - 1
+                while j < jmax and prev_path[j] == c_path.path[j]:
+                    j += 1
+                if dev_idx < j and j < len(c_path.path):
+                    self.forbidden_edges[j-1].add((c_path.path[j-1], c_path.path[j]))
+
+            # Set initial colors for vertices
+            self.color = {v: 1 for v in self.graph.vertices()}
+            for i in range(dev_idx + 1):
+                self.color[prev_path[i]] = 0
+
+            # Identify green nodes
+            stack = [self.target]
+            while stack:
+                u = stack.pop()
+                self.color[u] = 2
+                for v in self.succ_g_inv.get(u, set()):
+                    if self.color[v] != 0:
+                        stack.append(v)
+
+            # Compute the cost of prefixes
+            prefix_cost = [0]
+            for i in range(1, prev_path_size):
+                u, v = prev_path[i-1], prev_path[i]
+                prefix_cost.append(prefix_cost[i-1] + self.graph.edge_label(u, v))
+
+            # Search for deviations
+            for i in range(dev_idx, prev_path_size - 1):
+                spur_node = prev_path[i]
+
+                # Reset colors around the deviating node
+                stack = [spur_node]
+                while stack:
+                    u = stack.pop()
+                    self.color[u] = 1
+                    for v in self.succ_g_inv.get(u, set()):
+                        if (v, u) not in self.forbidden_edges[i] and self.color[v] != 0:
+                            stack.append(v)
+                self.color[spur_node] = 0
+
+                # Check for a valid path
+                if len(self.forbidden_edges[i]) == len(self.out_neighbors_residual[spur_node]):
+                    continue
+
+                # Find the best outgoing edge
+                min_weight = self.MAX_WEIGHT
+                best_v = None
+                for v, w in self.out_neighbors_residual.get(spur_node, []):
+                    if self.color[v] != 0 and (spur_node, v) not in self.forbidden_edges[i]:
+                        if w < min_weight:
+                            min_weight = w
+                            best_v = v
+
+                if best_v is None:
+                    continue
+
+                # Construct the new path
+                new_path = prev_path[:i+1] + [best_v]
+                if best_v in self.DTo._predecessor:
+                    tmp = self.DTo.get_path(best_v)
+                    new_path += tmp[1:]  
+
+                # Compute the new weight
+                edge_weight = self.graph.edge_label(spur_node, best_v)
+                total_weight = prefix_cost[i] + edge_weight + self.DTo.weight(best_v)
+
+                # Check for simplicity
+                is_simple = len(new_path) == len(set(new_path))
+
+                # Add the new path
+                new_candidate = self.CandidatePath(new_path, total_weight, i, is_simple)
+                self.heappush(self.heap_sorted_paths, (total_weight, new_candidate))
+
+        def repair_path(self, candidate_path):
+            # Reinitialize colors
+            self.color = {v: 1 for v in self.graph.vertices()}  # 1 = أصفر (افتراضي)
+            for i in range(candidate_path.deviation_index + 1):
+                self.color[candidate_path.path[i]] = 0  # 0 = أحمر (محظور)
+
+            # Identify green nodes (reachable to the target)
+            stack = [self.target]
+            while stack:
+                u = stack.pop()
+                self.color[u] = 2  
+                for v in self.succ_g_inv.get(u, []):
+                    if self.color[v] != 0:
+                        stack.append(v)
+
+            # Set up forbidden edges for repair
+            self.repair_forbidden_edges.clear()
+            for c_path in self.yielded_paths:
+                j = 1
+                jmax = min(len(candidate_path.path), len(c_path.path)) - 1
+                while j < jmax and candidate_path.path[j] == c_path.path[j]:
+                    j += 1
+                if candidate_path.deviation_index < j and j < len(c_path.path):
+                    self.repair_forbidden_edges.add((c_path.path[j-1], c_path.path[j]))
+
+            # Run special Dijkstra from the deviation point
+            spur_node = candidate_path.path[candidate_path.deviation_index]
+            self.special_dijkstra(spur_node)
+
+            # Compute prefix cost
+            prefix_cost = 0
+            for i in range(1, candidate_path.deviation_index + 1):
+                u, v = candidate_path.path[i-1], candidate_path.path[i]
+                prefix_cost += self.graph.edge_label(u, v)
+
+            # Construct new path if it exists
+            if self.pred.get(self.target, self.target) != self.target:
+                new_path = candidate_path.path[:candidate_path.deviation_index+1]
+                u = self.pred[self.target]
+                total_weight = 0
+
+                if u == spur_node:
+                    new_path.append(self.target)
+                    total_weight = self.graph.edge_label(spur_node, self.target)
+                else:
+                    # Trace the path from the green node to the target
+                    tmp_path = []
+                    current = u
+                    while current != spur_node and current in self.pred:
+                        tmp_path.append(current)
+                        total_weight += self.graph.edge_label(self.pred[current], current)
+                        current = self.pred[current]
+                    
+                    new_path += reversed(tmp_path)
+                    
+                    if self.color.get(u, 1) == 2:
+                        green_path = self.DTo.get_path(u)
+                        new_path += green_path[1:]  
+                        total_weight += self.DTo.weight(u)
+                    else:
+                        new_path.append(self.target)
+                        total_weight += self.graph.edge_label(u, self.target)
+
+                # Create a new candidate path
+                new_candidate = self.CandidatePath(
+                    path=new_path,
+                    weight=prefix_cost + total_weight,
+                    deviation_index=candidate_path.deviation_index,
+                    is_simple=True
+                )
+                self.heappush(self.heap_sorted_paths, (new_candidate.weight, new_candidate))
+       
+        def special_dijkstra(self, spur_node):
+            # Initialize weights and predecessors
+            self.weight = {v: self.MAX_WEIGHT for v in self.graph.vertices()}
+            self.pred = {v: v for v in self.graph.vertices()}
+            
+            pq = []
+            entry_finder = {}  
+            
+            def add_node(u, priority):
+                if u in entry_finder:
+                    remove_node(u)
+                entry = [priority, u]
+                entry_finder[u] = entry
+                self.heappush(pq, entry)
+            
+            def remove_node(u):
+                entry = entry_finder.pop(u)
+                entry[-1] = None  
+            
+            def pop_node():
+                while pq:
+                    priority, u = self.heappop(pq)
+                    if u is not None:
+                        del entry_finder[u]
+                        return u
+                return None
+            
+            # Start from the spur node
+            add_node(spur_node, 0)
+            self.weight[spur_node] = 0
+            
+            found = False
+            while pq:
+                u = pop_node()
+                if u is None:
+                    continue
+                
+                # Stop if we reach the target or a green node
+                if u == self.target:
+                    found = True
+                    break
+                if self.color.get(u, 1) == 2: 
+                    self.pred[self.target] = u
+                    found = True
+                    break
+                
+                # Process neighbors
+                for v, w in self.out_neighbors_residual.get(u, []):
+                    # Skip forbidden edges or blocked nodes
+                    if self.color.get(v, 1) == 0 or (u, v) in self.repair_forbidden_edges:
+                        continue
+                    
+                    new_weight = self.weight[u] + w
+                    if new_weight < self.weight[v]:
+                        self.weight[v] = new_weight
+                        self.pred[v] = u
+                        add_node(v, new_weight)
+            
+            self.cpt_used_trees += 1
+            return found
+
+        class Dijkstra:
+            from heapq import heappush,heappop
+            def __init__(self, graph, source, reverse=False):
+                self.graph = graph
+                self.n = graph.num_verts()
+                self.source = source
+                self.reverse = reverse
+                
+                self._predecessor = {}
+                self._weight = {}
+                self._rank = {}
+                self.current_rank = 0
+                self.f_vertices = set()
+                self.f_edges = set()
+                self.pq = []
+                
+                if self.reverse:
+                    self.neighbors_attr = 'incoming_edges'
+                else:
+                    self.neighbors_attr = 'outgoing_edges'
+                
+                self.initialize()    
+
+            def initialize(self):
+                MAX_WEIGHT = float('inf')
+                for v in self.graph.vertices():
+                    self._predecessor[v] = v
+                    self._weight[v] = MAX_WEIGHT
+                    self._rank[v] = self.n
+                
+                self._weight[self.source] = 0
+                self.heappush(self.pq, (0, self.source))    
+    
+            def run(self, target):
+                if self.reverse:
+                    self.run_to(target)
+                else:
+                    self.run_from(target)
+                return True
+            
+            def run_from(self, target):
+                while self.pq:
+                    current_edges, u = self.heappop(self.pq)
+                    
+                    if u == target:
+                        break
+                    
+                    if current_edges > self._weight[u]:
+                        continue
+                    
+                    self.current_rank += 1
+                    self._rank[u] = self.current_rank
+                    
+                    for edge in self.graph.outgoing_edges(u):
+                        v = edge[1]  
+                        
+                        if v in self.f_vertices or (u, v) in self.f_edges:
+                            continue
+                        
+                        new_weight = self._weight[u] + 1
+                        if new_weight < self._weight[v]:
+                            self._weight[v] = new_weight
+                            self._predecessor[v] = u
+                            self.heappush(self.pq, (new_weight, v))
+            
+            def run_to(self, target):
+                while self.pq:
+                    current_edges, u = self.heappop(self.pq)
+                    
+                    if u == target:
+                        break
+                    
+                    if current_edges > self._weight[u]:
+                        continue
+                    
+                    self.current_rank += 1
+                    self._rank[u] = self.current_rank
+                    
+                    for edge in self.graph.incoming_edges(u):
+                        v = edge[0]  
+                        
+                        if v in self.f_vertices or (v, u) in self.f_edges:  
+                            continue
+                        
+                        new_weight = self._weight[u] + 1
+                        if new_weight < self._weight[v]:
+                            self._weight[v] = new_weight
+                            self._predecessor[v] = u
+                            self.heappush(self.pq, (new_weight, v))
+
+            def weight(self, u):
+                return self._weight.get(u, float('inf'))
+                
+            def predecessor(self, u):
+                assert not self.reverse
+                return self._predecessor.get(u, u)
+                
+            def successor(self, u):
+                assert self.reverse
+                return self._predecessor.get(u, u)
+                
+            def rank(self, u):
+                return self._rank.get(u, self.n)
+
+            def get_path(self, u):
+                path = []
+                current = u
+                    
+                while self._predecessor.get(current, current) != current:
+                    path.append(current)
+                    current = self._predecessor[current]
+                    
+                path.append(current)
+                    
+                if not self.reverse:
+                    path.reverse()
+                    
+                return path                             
+            
     # Aliases to functions defined in other modules
     from sage.graphs.comparability import is_transitive
     from sage.graphs.base.static_sparse_graph import tarjan_strongly_connected_components as strongly_connected_components
