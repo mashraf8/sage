@@ -9235,7 +9235,7 @@ class Graph(GenericGraph):
         G.name("%sBipartite Double of %s" % (prefix, self.name()))
         return G
 
-    def simple_cycles_ungraph(self):
+    def simple_cycles_ungraph(self, max_length=None):
         # Ensure the graph is undirected
         if self.is_directed():
             raise ValueError("This function supports only undirected graphs")
@@ -9243,13 +9243,17 @@ class Graph(GenericGraph):
         from heapq import heappush, heappop
         heap = [] 
 
+        if max_length is None:
+            from sage.rings.infinity import Infinity
+            max_length = Infinity
+
         # Search for self-loops
-        if self.allows_loops():
+        if self.allows_loops() and 1 <= max_length:
             for v, *_ in self.loop_edges():
                 heappush(heap, (1, [v])) 
 
         # Search for multiple edges
-        if self.allows_multiple_edges():
+        if self.allows_multiple_edges() and 2 <= max_length:
             seen_edges = set()
             for u, v, *_ in self.multiple_edges():
                 edge = (u, v)  
@@ -9259,7 +9263,7 @@ class Graph(GenericGraph):
 
         # Filter out self-loops and parallel edges, creating a simplified graph
         G = Graph([(u, v) for u in self.vertices() for v in self.neighbors(u) if u != v])
-        
+    
         while heap:
             # Extract the shortest available cycle
             _, shortest_cycle = heappop(heap)
@@ -9267,7 +9271,9 @@ class Graph(GenericGraph):
             # Search for the next cycle using `prepare_undirected_cycles`
             try:
                 cycle = next(self.prepare_undirected_cycles(G))
-                heappush(heap, (len(cycle), cycle))  # Add the new cycle to the heap
+                cycle_length = len(cycle)
+                if cycle_length <= max_length:
+                    heappush(heap, (cycle_length, cycle)) # Add the new cycle to the heap
             except StopIteration:
                 pass  
 
@@ -9290,7 +9296,6 @@ class Graph(GenericGraph):
             components.extend(c for c in Gc.blocks_and_cut_vertices()[0] if len(c) >= 3)
 
     def johnson_cycle_algorithm(self, G, path):
-
         from collections import defaultdict
         G = self._NeighborhoodCache(G)
         blocked = set(path)
