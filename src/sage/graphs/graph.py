@@ -9263,19 +9263,22 @@ class Graph(GenericGraph):
 
         # Filter out self-loops and parallel edges, creating a simplified graph
         G = self.to_simple() 
-    
+
+        # Initialize a generator that yields undirected cycles from the graph
+        cycle_generator = self.prepare_undirected_cycles(G)  
+
         while heap:
-            # Extract the shortest available cycle
+            # Extract the shortest available cycle from the heap
             _, shortest_cycle = heappop(heap)
-            yield shortest_cycle  # Yield the current cycle
-            # Search for the next cycle using `prepare_undirected_cycles`
+            yield shortest_cycle
             try:
-                cycle = next(self.prepare_undirected_cycles(G))
+                # Retrieve the next cycle from the generator
+                cycle = next(cycle_generator)  
                 cycle_length = len(cycle)
                 if cycle_length <= max_length:
-                    heappush(heap, (cycle_length, cycle)) # Add the new cycle to the heap
+                    heappush(heap, (cycle_length, cycle))
             except StopIteration:
-                pass  
+                pass
 
 
     def prepare_undirected_cycles(self,G):
@@ -9286,61 +9289,29 @@ class Graph(GenericGraph):
         while components:
             c = components.pop()  # Get the last component from the list
             Gc = G.subgraph(vertices=c)  # Create a subgraph with the vertices of the component
+                        
+            # Check if there are edges before selecting one
+            if not Gc.edges():
+                continue
+
             # Select an arbitrary edge from the subgraph
-            uv = list(next(iter(Gc.edge_iterator(labels=False))))  
-            G.delete_edge(uv[0], uv[1])
-            Gc.delete_edge(uv[0], uv[1])  
-            # Use Johnson's cycle search algorithm to find cycles starting from the removed edge
-            yield from self.johnson_cycle_algorithm(Gc, uv)
-            # Find new biconnected components after edge removal and add them if they have at least 3 vertices
+            uv = list(next(iter(Gc.edge_iterator(labels=False))))
+            removed_u, removed_v = uv 
+            
+            # Remove the selected edge from both the original graph and the subgraph
+            G.delete_edge(removed_u, removed_v)
+            Gc.delete_edge(removed_u, removed_v)
+
+            # Find all paths between the removed vertices in the subgraph after removing the edge
+            paths =Gc.all_paths(removed_u, removed_v)
+
+            # Yield each path found in the list
+            for path in paths:
+                yield path
+            
+            # Add new subcomponents that still contain 3 or more vertices to the list for further processing
             components.extend(c for c in Gc.blocks_and_cut_vertices()[0] if len(c) >= 3)
-
-    def johnson_cycle_algorithm(self, G, path):
-        from collections import defaultdict
-        G = self._NeighborhoodCache(G)
-        blocked = set(path)
-        B = defaultdict(set)  
-        start = path[0]
-        stack = [iter(G[path[-1]])]
-        closed = [False]
-        while stack:
-            nbrs = stack[-1]
-            for w in nbrs:
-                if w == start:
-                    yield path[:]
-                    closed[-1] = True
-                elif w not in blocked:
-                    path.append(w)
-                    closed.append(False)
-                    stack.append(iter(G[w]))
-                    blocked.add(w)
-                    break
-            else: 
-                stack.pop()
-                v = path.pop()
-                if closed.pop():
-                    if closed:
-                        closed[-1] = True
-                    unblock_stack = {v}
-                    while unblock_stack:
-                        u = unblock_stack.pop()
-                        if u in blocked:
-                            blocked.remove(u)
-                            unblock_stack.update(B[u])
-                            B[u].clear()
-                else:
-                    for w in G[v]:
-                        B[w].add(v)
-
-    class _NeighborhoodCache(dict):
-        def __init__(self, G):
-            self.G = G 
-    
-        def __missing__(self, v):
-            Gv = self[v] = list(self.G.neighbors(v))  
-            return Gv
         
-
     # Aliases to functions defined in other modules
     from sage.graphs.weakly_chordal import is_long_hole_free, is_long_antihole_free, is_weakly_chordal
     from sage.graphs.asteroidal_triples import is_asteroidal_triple_free
