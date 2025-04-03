@@ -4399,21 +4399,7 @@ class DiGraph(GenericGraph):
         list_merged_edges = set()
         return _rec_in_branchings(depth)
     
-    def k_short_path(self, source, target, k=1):
-        solver = self.PostponedNodeClassificationStar(self, source, target)
-        shortest_paths = []
-        
-        for _ in range(k):
-            if solver.empty():
-                break
-            path, weight = solver.next_path()
-            if path:
-                shortest_paths.append((path, weight))
-                self.incoming_edge_iterator
-        
-        return shortest_paths
     class PostponedNodeClassificationStar:
-        from heapq import heappush,heappop
         class LazyDijkstra:
                 from heapq import heappush,heappop
                 from typing import Dict, List, Optional
@@ -4432,105 +4418,79 @@ class DiGraph(GenericGraph):
                         
 
                 def __init__new1(self, graph, target):
-                    # 1. تهيئة المتغيرات الأساسية
-                    self.graph = graph      # كائن الرسم البياني
-                    self.n = graph.num_verts()  # عدد العقد
-                    self.target = target    # العقدة الهدف
+                    self.graph = graph
+                    self.n = graph.num_verts() 
+                    self.target = target
                     
-                    # 2. تحديد القيمة القصوى (بديل لـ numeric_limits)
                     self.MAX_WEIGHT = float('inf')
                     
-                    # 3. تهيئة هياكل البيانات (بديل لـ malloc وmemset)
-                    self.seen = [False] * self.n         # قائمة رؤية العقد
-                    self.f_vertices = [False] * self.n   # قائمة العقد المحظورة
-                    self._successor = list(range(self.n)) # خليفة كل عقدة
-                    self._weight = [self.MAX_WEIGHT] * self.n # أوزان المسارات
-                    self._rank = [self.n] * self.n       # رتب ديكسترا
+                    self.seen = {node: False for node in self.graph.vertices()}
+                    self.f_vertices = {node: False for node in self.graph.vertices()}
+                    self._successor = list(range(self.n))
+                    self._weight = {node: self.MAX_WEIGHT for node in self.graph.vertices()}  
+                    self._rank = {node: self.n for node in self.graph.vertices()}      
                     
-                    # 4. تهيئة العقدة الهدف
                     self._weight[target] = 0.0
                     self.current_rank = 0
                     
-                    # 5. إنشاء كومة الأولوية (بديل لـ PairingHeap)
                     self.pq = []
                     self.heappush(self.pq, (0.0, target))
                     
-                    # 6. تعيين الرتبة الأولية للهدف (اختياري)
                     self._rank[target] = 0
 
                 def __init__new2(self, graph,forbidden_vertices, target):
-                    """منشئ مع قائمة عقد محظورة
-                    
-                    Args:
-                        graph: كائن الرسم البياني
-                        forbidden_vertices: قائمة بالعقد المحظورة (أرقام العقد)
-                        target: العقدة الهدف
-                    """
-                    # 1. تهيئة المتغيرات الأساسية
+                   
                     self.graph = graph
-                    self.n = graph.num_verts()  # يُفترض وجود دالة num_verts()
+                    self.n = graph.num_verts()  
                     self.target = target
                     
-                    # 2. تحديد القيمة القصوى
                     self.MAX_WEIGHT = float('inf')
                     
-                    # 3. تهيئة هياكل البيانات
-                    self.seen = [False] * self.n         # قائمة رؤية العقد
-                    self.f_vertices = [False] * self.n   # قائمة العقد المحظورة
-                    self._successor = list(range(self.n)) # الخلفية الافتراضية
-                    self._weight = [self.MAX_WEIGHT] * self.n
-                    self._rank = [self.n] * self.n
+                    self.seen = {node: False for node in self.graph.vertices()}
+                    self.f_vertices = {node: False for node in self.graph.vertices()}
+                    self._successor = list(range(self.n)) 
+                    self._weight = {node: self.MAX_WEIGHT for node in self.graph.vertices()}  
+                    self._rank = {node: self.n for node in self.graph.vertices()}     
                     
-                    # 4. تعطيل العقد المحددة
                     if forbidden_vertices is not None:
                         for u in forbidden_vertices:
                             if 0 <= u < self.n:
                                 self.f_vertices[u] = True
                     
-                    # 5. تهيئة العقدة الهدف
                     self._weight[target] = 0.0
                     self.current_rank = 0
                     
-                    # 6. إنشاء كومة الأولوية وإضافة الهدف
                     self.pq = []
                     self.heappush(self.pq, (0.0, target))
                     
-                    # 7. تعيين رتبة الهدف (اختياري)
                     self._rank[target] = 0 
 
                 def __init__copy1(self, other):
                     """منشئ النسخ (Copy Constructor)"""
                     
-                    # 1. نسخ المتغيرات الأساسية
-                    self.graph = other.graph                # مشاركة نفس المرجع للرسم البياني
-                    self.n = other.n                        # عدد العقد
-                    self.target = other.target              # العقدة الهدف
-                    self.MAX_WEIGHT = other.MAX_WEIGHT      # القيمة القصوى للوزن
-                    self.current_rank = other.current_rank  # الرتبة الحالية
+                    self.graph = other.graph               
+                    self.n = other.n                       
+                    self.target = other.target              
+                    self.MAX_WEIGHT = other.MAX_WEIGHT     
+                    self.current_rank = other.current_rank  
                     
-                    # 2. نسخ هياكل البيانات (بديل لـ memcpy)
-                    self.seen = other.seen.copy()           # نسخ قائمة seen
-                    self.f_vertices = other.f_vertices.copy() # نسخ قائمة العقد المحظورة
-                    self._successor = other._successor.copy() # نسخ قائمة الخلفاء
-                    self._weight = other._weight.copy()     # نسخ قائمة الأوزان
-                    self._rank = other._rank.copy()         # نسخ قائمة الرتب
+                    self.seen = other.seen.copy()
+                    self.f_vertices = other.f_vertices.copy() 
+                    self._successor = other._successor.copy() 
+                    self._weight = other._weight.copy()    
+                    self._rank = other._rank.copy()         
                     
-                    # 3. نسخ كومة الأولوية (بديل لـ PairingHeap)
                     self.pq = []
-                    # إعادة بناء الكومة يدويًا (لضمان الاستقلالية)
                     for priority, node in other.pq:
                         self.heappush(self.pq, (priority, node))
 
                 def __init__copy2(self, other, forbidden_vertices):
-                    """منشئ نسخ مع تعطيل عقد محددة"""
                     
-                    # 1. نسخ الهياكل الأساسية من الكائن الأصلي
                     self.graph = other.graph
                     self.n = other.n
                     self.target = other.target
                     self.MAX_WEIGHT = other.MAX_WEIGHT
                     
-                    # نسخ القوائم باستخدام list.copy()
                     self.seen = other.seen.copy()
                     self.f_vertices = other.f_vertices.copy()
                     self._successor = other._successor.copy()
@@ -4538,7 +4498,6 @@ class DiGraph(GenericGraph):
                     self._rank = other._rank.copy()
                     self.current_rank = other.current_rank
                     
-                    # 2. تعطيل العقد المحددة وتحديث العقد المتأثرة
                     todo = []
                     stack = []
                     
@@ -4549,7 +4508,6 @@ class DiGraph(GenericGraph):
                         stack.append(u)
                         while stack:
                             v = stack.pop()
-                            # الحصول على الجيران الواردين (في الرسم البياني)
                             for x, _ in self.graph.incoming_edge_iterator(v): 
                                 if self._successor[x] == v:
                                     todo.append(x)
@@ -4559,18 +4517,15 @@ class DiGraph(GenericGraph):
                                     self._rank[x] = self.n
                                     stack.append(x)
                         
-                        # تعطيل العقدة u
                         self.f_vertices[u] = True
                         self._successor[u] = u
                         self._weight[u] = self.MAX_WEIGHT
                         self._rank[u] = self.n
                         self.seen[u] = False
                     
-                    # 3. تحديث العقد المتأثرة
                     for u in todo:
                         min_weight = self.MAX_WEIGHT
                         best_successor = u
-                        # الحصول على الجيران الصادرين (في الرسم البياني)
                         for v, w in self.graph.out_neighbors[u]: 
                             if not self.f_vertices[v] and self.seen[v]:
                                 new_weight = w + self._weight[v]
@@ -4583,27 +4538,20 @@ class DiGraph(GenericGraph):
                             self._successor[u] = best_successor
                             self._rank[u] = self.n
                     
-                    # 4. إعادة بناء كومة الأولوية
                     self.pq = []
                     for u in range(self.n):
                         if not self.seen[u] and self._successor[u] != u:
                             self.heappush(self.pq, (self._weight[u], u))               
                 
                 def enable(self, vertex: int) -> None:
-                    """تمكين عقدة محظورة سابقًا وتحديث المسارات
-                    
-                    Args:
-                        vertex: رقم العقدة المراد تمكينها
-                    """
+                   
                     if self.f_vertices[vertex]:
-                        # 1. إعادة تعيين حالة العقدة
                         self.f_vertices[vertex] = False
                         self._weight[vertex] = self.MAX_WEIGHT
                         self._successor[vertex] = vertex
                         self._rank[vertex] = self.n
                         self.seen[vertex] = False
                         
-                        # 2. تحديث الوزن بناءً على الجيران الصادرين
                         min_weight = self.MAX_WEIGHT
                         best_successor = vertex
                         
@@ -4614,25 +4562,17 @@ class DiGraph(GenericGraph):
                                     min_weight = new_weight
                                     best_successor = neighbor
                         
-                        # 3. تحديث القيم إذا وجد مسار أفضل
                         if min_weight < self.MAX_WEIGHT:
                             self._weight[vertex] = min_weight
                             self._successor[vertex] = best_successor
                             
-                            # 4. إضافة العقدة إلى كومة الأولوية إذا كان لها مسار صالح
                             self.heappush(self.pq, (min_weight, vertex))
 
                 def run_to(self, vertex, weight_bound):
-                    """حساب المسارات الأقصر حتى الوصول للعقدة المطلوبة أو تجاوز حد الوزن
-                    
-                    Args:
-                        vertex: العقدة المستهدفة
-                        weight_bound: الحد الأقصى للوزن
-                    """
+                   
                     while self.pq:
                         current_weight, u = self.heappop(self.pq)
                         
-                        # تخطي إذا كان لدينا نسخة أحدث للعقدة
                         if current_weight > self._weight[u]:
                             continue
                             
@@ -4644,115 +4584,67 @@ class DiGraph(GenericGraph):
                             if self.f_vertices[v]:
                                 continue
                             
-                            new_weight = current_weight + w['weight']
+                            new_weight = current_weight + w
                             if new_weight < self._weight[v]:
                                 self._weight[v] = new_weight
                                 self._successor[v] = u
                                 self.heappush(self.pq, (new_weight, v))
                                 self.seen[v] = False
                         
-                        # شرط التوقف
                         if u == vertex or self._weight[u] > weight_bound:
                             break    
 
                 def weight(self, u):
-                    """الحصول على وزن المسار الأقصر من العقدة u إلى الهدف
-                    
-                    Args:
-                        u: العقدة المطلوبة
-                    
-                    Returns:
-                        وزن المسار الأقصر (float('inf') إذا لم يوجد مسار)
-                    """
-                    # 1. إذا كانت العقدة لم تُرَ بعد، حساب المسار لها
+                   
                     if not self.seen[u]:
                         self.run_to(u, self.MAX_WEIGHT)
                     
-                    # 2. إذا كانت هناك تحديثات في الكومة قد تؤثر على الوزن
                     elif self.pq and self.pq[0][0] < self._weight[u]:
                         self.run_to(u, self._weight[u])
                     
-                    # 3. إرجاع وزن المسار
                     return self._weight[u]            
 
 
                 def successor(self, u):
-                    """الحصول على العقدة التالية في المسار الأقصر من u إلى الهدف
-                    
-                    Args:
-                        u: العقدة الحالية
-                    
-                    Returns:
-                        العقدة التالية في المسار الأقصر (قد تكون u نفسها إذا لم يوجد مسار)
-                    """
-                    # 1. إذا كانت العقدة لم تُرَ بعد، حساب المسار لها
+                   
                     if not self.seen[u]:
                         self.run_to(u, self.MAX_WEIGHT)
                     
-                    # 2. إذا كانت هناك تحديثات في الكومة قد تؤثر على المسار
                     elif self.pq and self.pq[0][0] < self._weight[u]:
                         self.run_to(u, self._weight[u])
                     
-                    # 3. إرجاع العقدة التالية في المسار
                     return self._successor[u]
                 
                 def rank(self, u):
-                    """الحصول على رتبة ديكسترا للعقدة (عدد استخراجات الكومة حتى اكتشاف المسار)
-                    
-                    Args:
-                        u: العقدة المطلوبة
-                    
-                    Returns:
-                        رتبة العقدة (عدد الاستخراجات اللازمة لاكتشاف مسارها)
-                    """
-                    # 1. إذا كانت العقدة غير مرئية، حساب مسارها أولاً
+                   
                     if not self.seen[u]:
                         self.run_to(u, self.MAX_WEIGHT)
                     
-                    # 2. إذا كانت هناك تحديثات معلقة قد تغير الرتبة
                     elif self.pq and self.pq[0][0] < self._weight[u]:
                         self.run_to(u, self._weight[u])
                     
-                    # 3. إرجاع رتبة العقدة
                     return self._rank[u]
                 
                 def get_path(self, u):
-                    """الحصول على المسار الأقصر من العقدة u إلى الهدف
-                    
-                    Args:
-                        u: العقدة البدءية
-                        
-                    Returns:
-                        قائمة بالعقد المكونة للمسار (من u إلى الهدف)
-                        إذا لم يوجد مسار، تحتوي القائمة على u فقط
-                    """
-                    # 1. التأكد من حساب المسار أولاً
+                   
                     if not self.seen[u]:
                         self.run_to(u, self.MAX_WEIGHT)
                     elif self.pq and self.pq[0][0] < self._weight[u]:
                         self.run_to(u, self._weight[u])
                     
-                    # 2. بناء المسار
                     path = []
                     current = u
                     
                     while True:
                         path.append(current)
-                        if self._successor[current] == current:  # وصلنا للهدف أو لا يوجد مسار
+                        if self._successor[current] == current:
                             break
                         current = self._successor[current]
                     
-                    # 3. التحقق إذا كان المسار يصل للهدف
                     if path[-1] != self.target:
-                        return [u]  # إرجاع العقدة فقط إذا لم يكن هناك مسار
+                        return [u]  
                         
                     return path
-
-
-            
-    
-
-
 
     # Aliases to functions defined in other modules
     from sage.graphs.comparability import is_transitive
