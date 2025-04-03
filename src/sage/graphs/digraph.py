@@ -4476,7 +4476,7 @@ class DiGraph(GenericGraph):
             for u in self.graph.vertices():
                 for edge in self.graph.outgoing_edges(u):
                     v = edge[1]
-                    w = edge[2] if len(edge) > 2 else 1  # إذا لم يوجد وزن، افترض 1
+                    w = edge[2] if len(edge) > 2 else 1  
                     residual = self.DTo.weight(v) + w - self.DTo.weight(u)
                     self.out_neighbors_residual[u].append((v, residual))
 
@@ -4602,9 +4602,9 @@ class DiGraph(GenericGraph):
 
         def repair_path(self, candidate_path):
             # Reinitialize colors
-            self.color = {v: 1 for v in self.graph.vertices()}  # 1 = أصفر (افتراضي)
+            self.color = {v: 1 for v in self.graph.vertices()}  
             for i in range(candidate_path.deviation_index + 1):
-                self.color[candidate_path.path[i]] = 0  # 0 = أحمر (محظور)
+                self.color[candidate_path.path[i]] = 0  
 
             # Identify green nodes (reachable to the target)
             stack = [self.target]
